@@ -1,0 +1,130 @@
+name: Generate Original Paper PDF
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout manuscript repository
+        uses: actions/checkout@v7
+
+      - name: Checkout original paper template
+        uses: actions/checkout@v7
+        with:
+          repository: YutaroIshihama/original-article-template
+          ref: main
+          path: _original-article-template
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget xz-utils fonts-noto-cjk
+
+      - name: Install Pandoc
+        run: |
+          wget -q https://github.com/jgm/pandoc/releases/download/3.12.1/pandoc-3.12.1-1-amd64.deb
+          sudo dpkg -i pandoc-3.12.1-1-amd64.deb
+          pandoc --version
+
+      - name: Install Typst
+        run: |
+          TYPST_VERSION=$(curl -fsSL https://api.github.com/repos/typst/typst/releases/latest \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
+
+          wget -q \
+            "https://github.com/typst/typst/releases/download/${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz"
+
+          tar -xf typst-x86_64-unknown-linux-musl.tar.xz
+
+          sudo install -m 755 \
+            typst-x86_64-unknown-linux-musl/typst \
+            /usr/local/bin/typst
+
+          typst --version
+
+      - name: Install pandoc-crossref
+        run: |
+          CROSSREF_URL=$(curl -fsSL https://api.github.com/repos/lierdakil/pandoc-crossref/releases/latest \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["browser_download_url"] for x in d["assets"] if x["name"] == "pandoc-crossref-Linux-X64.tar.xz"))')
+
+          echo "Downloading: ${CROSSREF_URL}"
+
+          wget -q "${CROSSREF_URL}" -O pandoc-crossref.tar.xz
+          tar -xf pandoc-crossref.tar.xz
+
+          sudo install -m 755 \
+            pandoc-crossref \
+            /usr/local/bin/pandoc-crossref
+
+          pandoc-crossref --version
+
+      - name: Prepare Pandoc Typst metadata bridge
+        run: |
+          pandoc -D typst > /tmp/default.typst
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path("/tmp/default.typst")
+          s = p.read_text()
+
+          marker = """  cols: $if(columns)$$columns$$else$1$endif$,
+            doc,
+          )"""
+
+          extra = """  cols: $if(columns)$$columns$$else$1$endif$,
+
+          $if(affiliations)$
+            affiliations: (
+          $for(affiliations)$
+              (
+                id: $affiliations.id$,
+                name: [$affiliations.name$],
+              ),
+          $endfor$
+            ),
+          $endif$
+
+            doc,
+          )"""
+
+          if marker not in s:
+              raise SystemExit(
+                  "ERROR: Pandoc default.typst layout has changed; "
+                  "metadata bridge marker was not found."
+              )
+
+          p.write_text(s.replace(marker, extra, 1))
+          PY
+
+      - name: Generate PDF
+        run: |
+          pandoc mnscrpt.md \
+            -o mnscrpt.pdf \
+            --pdf-engine=typst \
+            --template=/tmp/default.typst \
+            -V template=_original-article-template/template/custom.typ \
+            --resource-path=.:img \
+            --filter pandoc-crossref \
+            --citeproc \
+            --bibliography="refs/refs.bib" \
+            --csl="_original-article-template/refs/aip.csl" \
+            -M "figureTitle:Fig." \
+            -M "figPrefix:Fig." \
+            -M "tableTitle:Table" \
+            -M "tblPrefix:Table" \
+            -M "eqnPrefix:Eq."
+
+      - name: Upload PDF
+        uses: actions/upload-artifact@v7
+        with:
+          name: original-paper
+          path: mnscrpt.pdf
+          if-no-files-found: error
