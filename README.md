@@ -25,4 +25,24 @@ keywords:
   - optical properties
   - first-principles calculation
 ---
+
+:::Abstract:::
+
+abst
+
+# Introduction
+
+this work...
+
+:::Acknowledgements:::
+
+::: funding ... :::
+
+::: author-contributions ... :::
+
+::: data-availability ... :::
+
+::: code-availability ... :::
+
+::: competing-interests ... :::
 ```
